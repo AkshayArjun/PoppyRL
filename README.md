@@ -1,4 +1,4 @@
-# poppyRL
+# PoppyRL
 
 **PoppyRL** is a project that implements Reinforcement Learning (RL) techniques on the Poppy humanoid robot platform.
 We explore and benchmark two major RL algorithms enhanced with Hindsight Experience Replay (HER):
@@ -8,13 +8,10 @@ We explore and benchmark two major RL algorithms enhanced with Hindsight Experie
 - Deep Deterministic Policy Gradient (DDPG) + HER
 
 Our goal is to enable efficient and sample-effective learning of complex motor behaviors on Poppy for learning inverse kinematics.
-## Setup 
-```
-conda [name] create -f env.yml
-```
+
 # About Poppy 
 
-[poppy](https://www.poppy-project.org/en/) is an open-source robotic platform developed at INRIA, designed for research and education in humanoid robotics and bio-inspired robotics. It features a flexible and modular architecture suitable for a variety of robotic experiments.
+[Poppy](https://www.poppy-project.org/en/) is an open-source robotic platform developed at INRIA, designed for research and education in humanoid robotics and bio-inspired robotics. It features a flexible and modular architecture suitable for a variety of robotic experiments.
 
 # Project Structure
 ```
@@ -75,8 +72,19 @@ conda [name] create -f env.yml
 # Installation
 
 1). Clone the repository: 
-```
 
 ```
+git clone https://github.com/AkshayArjun/PoppyRL.git
+
+```
+2). Install [Conda](https://www.anaconda.com/docs/getting-started/miniconda/install)
+
+3). Install dependencies: 
+
+```
+conda [name] create -f env.yml
+```
+
+
   
 
