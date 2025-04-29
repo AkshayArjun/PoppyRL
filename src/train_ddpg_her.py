@@ -28,7 +28,7 @@ model = DDPG(
     batch_size=256,
     gamma=0.98,
     tau=0.05,
-    tensorboard_log="./ddpg_her_tensorboard/"  # <-- this adds TensorBoard logging
+    tensorboard_log="./ddpg_her_tensorboard/"  
 )
 
 
