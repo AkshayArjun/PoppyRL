@@ -16,15 +16,19 @@ class PoppyEnv(gym.Env):
             p.connect(p.GUI)
         else:
             p.connect(p.DIRECT)
+        self.gravity = -9.81
+        p.setGravity(0, 0, self.gravity)
 
         self.reach_threshold=0.1
         self.startPos = [0, 0, 0]
         self.startOrientation = p.getQuaternionFromEuler([0, 0, 0])
+    
 
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         self.robot_urdf = os.path.join(os.path.dirname(__file__), 'poppy_torso.urdf')
-        self.reset()
-
+        self.robot = p.loadURDF(self.robot_urdf, basePosition=self.startPos, baseOrientation=self.startOrientation, useFixedBase=True)
+      
+        
         self.num_joints = p.getNumJoints(self.robot)
         self.action_space = spaces.Box(low=-1, high=1, shape=(self.num_joints,), dtype=np.float32)
         self.observation_space = spaces.Dict({
@@ -36,6 +40,7 @@ class PoppyEnv(gym.Env):
         self._target_location=np.array([self.startPos[0]+0.2, self.startPos[1] -0.25, self.startPos[2]+0.2,self.startPos[0]+0.25, self.startPos[1] + 0.25, self.startPos[2]+0.2])
         self.cubeId1 = self.create_cube(self._target_location[:3], color=[1, 0, 0, 1])  # Red cube
         self.cubeId2 = self.create_cube(self._target_location[3:], color=[0, 0, 1, 1])  # Green cube
+
 
     def create_cube(self,startPos, color):
         cube_pos = [startPos[0], startPos[1], startPos[2]]
@@ -61,57 +66,90 @@ class PoppyEnv(gym.Env):
         return reward
 
     def step(self, action):
+        # Clip the action to ensure it is within the action space
+        action = np.clip(action, self.action_space.low, self.action_space.high)
+
+        # Apply the action to the robot
         p.setJointMotorControlArray(self.robot, range(self.num_joints), p.POSITION_CONTROL, targetPositions=action)
         p.stepSimulation()
+
+        # Get joint states and end-effector positions
         joint_states = [p.getJointState(self.robot, i)[0] for i in range(self.num_joints)]
         ee_state = self.get_arm_positions(self.robot)
+
+        # Construct the observation
+        observation = np.clip(joint_states, self.observation_space["observation"].low, self.observation_space["observation"].high)
+        achieved_goal = np.clip(ee_state, self.observation_space["achieved_goal"].low, self.observation_space["achieved_goal"].high)
+        desired_goal = np.clip(self._target_location, self.observation_space["desired_goal"].low, self.observation_space["desired_goal"].high)
+
         obs = {
-            "observation": np.array(joint_states, dtype=np.float32),
-            "achieved_goal": np.array(ee_state, dtype=np.float32),
-            "desired_goal": self._target_location,
+            "observation": np.array(observation, dtype=np.float32),
+            "achieved_goal": np.array(achieved_goal, dtype=np.float32),
+            "desired_goal": np.array(desired_goal, dtype=np.float32),
         }
+
+        # Calculate the reward
         reward = self.get_reward(ee_state, self._target_location)
+
+        # Check termination condition
         terminated = reward > 0  # Terminate if the success bonus is achieved
         truncated = False  # No truncation logic implemented
+
+        # Additional info
         info = {
             "distance_to_target": np.linalg.norm(ee_state - self._target_location),
             "target_location": self._target_location,
             "end_effector_position": ee_state,
         }
+
         return obs, reward, terminated, truncated, info
 
 
     def reset(self, seed=None, options=None):
+        """Reset the environment to its initial state."""
         super().reset(seed=seed)
+        if seed is not None:
+            # Set the random seed for reproducibility
+            self.np_random, seed = gym.utils.seeding.np_random(seed)
+            random.seed(seed)
+
         p.resetSimulation()
         p.setGravity(0, 0, -9.81)
         plane = p.loadURDF("plane.urdf")
         self.robot = p.loadURDF(self.robot_urdf, useFixedBase=True)
         self.num_joints = p.getNumJoints(self.robot)
-        self._target_location = np.array([random.uniform(self.startPos[0], self.startPos[0] + 0.2),
-                                          random.uniform(self.startPos[1] - 0.2, self.startPos[1] - 0.15),
-                                          random.uniform(self.startPos[2], self.startPos[2] + 0.2),
-                                          random.uniform(self.startPos[0] - 0.2, self.startPos[0]),
-                                          random.uniform(self.startPos[1] - 0.2, self.startPos[1] - 0.15),
-                                          random.uniform(self.startPos[2], self.startPos[2] + 0.2)])
+
+        # Randomize target location deterministically
+        self._target_location = np.array([
+            self.np_random.uniform(self.startPos[0], self.startPos[0] + 0.2),
+            self.np_random.uniform(self.startPos[1] - 0.2, self.startPos[1] - 0.15),
+            self.np_random.uniform(self.startPos[2], self.startPos[2] + 0.2),
+            self.np_random.uniform(self.startPos[0] - 0.2, self.startPos[0]),
+            self.np_random.uniform(self.startPos[1] - 0.2, self.startPos[1] - 0.15),
+            self.np_random.uniform(self.startPos[2], self.startPos[2] + 0.2)
+        ])
         self.cubeId1 = self.create_cube(self._target_location[:3], color=[1, 0, 0, 1])  # Red cube
         self.cubeId2 = self.create_cube(self._target_location[3:], color=[0, 0, 1, 1])
-        
+
         obs = self._get_obs()
-        info = {
-            "target_location": self._target_location,
-        }
+        info = {"target_location": self._target_location}
         return obs, info
     
     def _get_obs(self):
         joint_states = [p.getJointState(self.robot, i)[0] for i in range(self.num_joints)]
         ee_state = self.get_arm_positions(self.robot)
-        return {
-            "observation": np.array(joint_states, dtype=np.float32),
-            "achieved_goal": np.array(ee_state, dtype=np.float32),
-            "desired_goal": self._target_location,
-        }
 
+        # Ensure the observation values are within bounds
+        observation = np.clip(joint_states, self.observation_space["observation"].low, self.observation_space["observation"].high)
+        achieved_goal = np.clip(ee_state, self.observation_space["achieved_goal"].low, self.observation_space["achieved_goal"].high)
+        desired_goal = np.clip(self._target_location, self.observation_space["desired_goal"].low, self.observation_space["desired_goal"].high)
+
+        return {
+            "observation": np.array(observation, dtype=np.float32),
+            "achieved_goal": np.array(achieved_goal, dtype=np.float32),
+            "desired_goal": np.array(desired_goal, dtype=np.float32),
+        }
+    
     def get_arm_positions(self,body_id):
         # Link IDs for left and right forearms
         link_id_left_forearm = 8
