@@ -9,9 +9,13 @@ from gymnasium import spaces
 import numpy as np
 
 class PoppyEnv(gym.Env):
-    def __init__(self, render=True):
+    def __init__(self, render=True, max_episode_length =  200, alpha = 0.5):
         super(PoppyEnv, self).__init__()
         self.render = render
+        self.max_episode_length = max_episode_length
+        self.current_step = 0
+
+
         if render:
             p.connect(p.GUI)
         else:
@@ -40,7 +44,7 @@ class PoppyEnv(gym.Env):
         self._target_location=np.array([self.startPos[0]+0.2, self.startPos[1] -0.25, self.startPos[2]+0.2,self.startPos[0]+0.25, self.startPos[1] + 0.25, self.startPos[2]+0.2])
         self.cubeId1 = self.create_cube(self._target_location[:3], color=[1, 0, 0, 1])  # Red cube
         self.cubeId2 = self.create_cube(self._target_location[3:], color=[0, 0, 1, 1])  # Green cube
-
+        self.alpha = alpha  # Weight for dense reward
 
     def create_cube(self,startPos, color):
         cube_pos = [startPos[0], startPos[1], startPos[2]]
@@ -51,21 +55,23 @@ class PoppyEnv(gym.Env):
         p.changeVisualShape(cube_id, -1, rgbaColor= color)  # Set color to blue
         return cube_id
     
+    def compute_dense_reward(self, achieved_goal, desired_goal):
+        return -np.linalg.norm(achieved_goal - desired_goal)
 
-    def get_reward(self, achieved_goal, desired_goal):
-        # Calculate the Euclidean distance between the achieved goal and the desired goal
-        distance = np.linalg.norm(achieved_goal - desired_goal)
+    def compute_sparse_reward(self, achieved_goal, desired_goal):
+        distance = np.linalg.norm(achieved_goal - desired_goal, axis=-1)
 
-        # Define the reward: negative distance to encourage minimizing the distance
-        reward = -distance
+        # Return sparse reward: 0 if within threshold, -1 otherwise
+        return -(distance > self.reach_threshold).astype(np.float32)
 
-        # Add a success bonus if the distance is within the reach threshold
-        if distance < self.reach_threshold:
-            reward += 10.0  # Success bonus
-
-        return reward
+    def compute_reward(self, achieved_goal, desired_goal, info = None):
+        r_dense = self.compute_dense_reward(achieved_goal, desired_goal)
+        r_sparse = self.compute_sparse_reward(achieved_goal, desired_goal)
+        return self.alpha * r_dense + (1 - self.alpha) * r_sparse
+      
 
     def step(self, action):
+        self.current_step += 1
         # Clip the action to ensure it is within the action space
         action = np.clip(action, self.action_space.low, self.action_space.high)
 
@@ -89,11 +95,11 @@ class PoppyEnv(gym.Env):
         }
 
         # Calculate the reward
-        reward = self.get_reward(ee_state, self._target_location)
+        reward = self.compute_reward(obs["achieved_goal"], obs["desired_goal"])
 
         # Check termination condition
-        terminated = reward > 0  # Terminate if the success bonus is achieved
-        truncated = False  # No truncation logic implemented
+        terminated = reward == 0  # Terminate if goal is achieved
+        truncated = self.current_step >= self.max_episode_length # No truncation logic implemented
 
         # Additional info
         info = {
@@ -108,6 +114,8 @@ class PoppyEnv(gym.Env):
     def reset(self, seed=None, options=None):
         """Reset the environment to its initial state."""
         super().reset(seed=seed)
+        self.current_step = 0
+
         if seed is not None:
             # Set the random seed for reproducibility
             self.np_random, seed = gym.utils.seeding.np_random(seed)
@@ -130,6 +138,7 @@ class PoppyEnv(gym.Env):
         ])
         self.cubeId1 = self.create_cube(self._target_location[:3], color=[1, 0, 0, 1])  # Red cube
         self.cubeId2 = self.create_cube(self._target_location[3:], color=[0, 0, 1, 1])
+        self.current_step = 0
 
         obs = self._get_obs()
         info = {"target_location": self._target_location}
